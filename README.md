@@ -893,9 +893,6 @@ Hệ thống Cổng Thông Tin Điện Tử là một giải pháp toàn diện 
 - 🌐 Tích hợp mạng xã hội
 
 ---
-
-**Tài liệu này được cập nhật lần cuối**: 2024
-
 **Phiên bản**: 1.0
 
 **Liên hệ hỗ trợ**: Xem file `HUONG_DAN_START.md` để biết cách cài đặt và chạy dự án.
