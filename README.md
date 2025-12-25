@@ -894,7 +894,622 @@ Hệ thống Cổng Thông Tin Điện Tử là một giải pháp toàn diện 
 
 ---
 
-**Tài liệu này được cập nhật lần cuối**: 2024
+## 12. 🔒 ĐÁNH GIÁ BẢO MẬT VÀ RỦI RO
+
+### 12.1. Tổng quan đánh giá
+
+**Mức độ rủi ro tổng thể**: ⚠️ **TRUNG BÌNH - CAO**
+
+**Phạm vi đánh giá**:
+
+- Mã nguồn Backend (.NET)
+- Mã nguồn Frontend (Vue.js, Angular)
+- Dependencies và thư viện
+- Cấu hình bảo mật
+- Xác thực và phân quyền
+
+---
+
+### 12.2. 🔴 RỦI RO NGHIÊM TRỌNG (CRITICAL)
+
+#### 12.2.1. Hardcoded Credentials trong appsettings.json
+
+**Vị trí**:
+
+- `infoportal/Services/LHP.Cms/LHP.Cms.Api/appsettings.json`
+- `infoportal/Services/LHP.Identity/LHP.Identity.Api/appsettings.json`
+- `infoportal/Services/LHP.Identity/LHP.Identity.Authentication/appsettings.json`
+
+**Vấn đề**:
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Data Source=localhost\\SQLEXPRESS;Initial Catalog=ag.env-dev.cms;User Id=sa;Password=0328063079Manh;TrustServerCertificate=true;"
+  },
+  "Jwt": {
+    "SecretKey": "JsonWebApiTokenWithSwaggerAuthorizationAuthenticationAspNetCore"
+  },
+  "Authentication": {
+    "OpenId": {
+      "ClientSecret": "test.fsel.swagger_secret"
+    }
+  }
+}
+```
+
+**Mức độ rủi ro**: 🔴 **CRITICAL**
+
+**Tác động**:
+
+- Kẻ tấn công có thể truy cập database
+- Có thể tạo JWT token giả mạo
+- Có thể bypass authentication
+
+**Khuyến nghị**:
+
+- ✅ Sử dụng User Secrets cho development
+- ✅ Sử dụng Azure Key Vault hoặc AWS Secrets Manager cho production
+- ✅ Sử dụng Environment Variables
+- ✅ Tạo JWT Secret Key mạnh (ít nhất 32 ký tự, random)
+- ✅ Không commit file appsettings.json có chứa credentials
+
+---
+
+#### 12.2.2. CORS Configuration Quá Rộng
+
+**Vị trí**:
+
+- `infoportal/Services/LHP.Identity/LHP.Identity.Authentication/Program.cs`
+
+**Vấn đề**:
+
+```csharp
+app.UseCors(options =>
+{
+    options.AllowAnyOrigin();
+    options.AllowAnyHeader();
+    options.AllowAnyMethod();
+});
+```
+
+**Mức độ rủi ro**: 🔴 **CRITICAL** (trong Production)
+
+**Tác động**:
+
+- Website khác có thể gọi API từ trình duyệt người dùng
+- Có thể bị tấn công CSRF
+- Lộ thông tin nhạy cảm
+
+**Khuyến nghị**:
+
+- ✅ Chỉ cho phép các origin cụ thể:
+  ```csharp
+  options.WithOrigins("https://yourdomain.com", "https://www.yourdomain.com");
+  ```
+- ✅ Sử dụng `AllowCredentials()` chỉ khi cần thiết
+- ✅ Cấu hình riêng cho từng môi trường
+
+---
+
+#### 12.2.3. JWT Secret Key Yếu
+
+**Vị trí**: Tất cả file `appsettings.json`
+
+**Vấn đề**:
+
+```json
+"Jwt": {
+  "SecretKey": "JsonWebApiTokenWithSwaggerAuthorizationAuthenticationAspNetCore"
+}
+```
+
+**Mức độ rủi ro**: 🔴 **CRITICAL**
+
+**Mô tả**:
+
+- Secret key quá ngắn và dễ đoán
+- Không phải là random string
+- Có thể bị brute force
+
+**Khuyến nghị**:
+
+- ✅ Tạo secret key mạnh (ít nhất 256 bits):
+  ```csharp
+  var key = new byte[32];
+  using (var rng = RandomNumberGenerator.Create())
+  {
+      rng.GetBytes(key);
+  }
+  var secretKey = Convert.ToBase64String(key);
+  ```
+- ✅ Sử dụng RSA keys cho production
+- ✅ Rotate keys định kỳ
+
+---
+
+#### 12.2.4. XSS Risk - Sử dụng innerHTML
+
+**Vị trí**:
+
+- `congthongtindientu/src/views/DetailArticleView.vue`
+- `congthongtindientu/src/views/DetailCommentDraftView.vue`
+
+**Vấn đề**:
+
+```javascript
+return el.body.innerHTML;
+```
+
+**Mức độ rủi ro**: 🔴 **CRITICAL**
+
+**Mô tả**:
+
+- Sử dụng `innerHTML` để render nội dung từ server
+- Nếu nội dung không được sanitize, có thể bị XSS attack
+
+**Tác động**:
+
+- Kẻ tấn công có thể inject JavaScript độc hại
+- Có thể đánh cắp session, cookies
+- Có thể redirect người dùng đến website độc hại
+
+**Khuyến nghị**:
+
+- ✅ Sanitize HTML trước khi render:
+  ```javascript
+  import DOMPurify from "dompurify";
+  return DOMPurify.sanitize(el.body.innerHTML);
+  ```
+- ✅ Sử dụng `v-html` với sanitization
+- ✅ Validate và sanitize nội dung ở backend trước khi lưu
+
+---
+
+### 12.3. 🟠 RỦI RO CAO (HIGH)
+
+#### 12.3.1. TrustServerCertificate = true
+
+**Vị trí**: Connection strings trong `appsettings.json`
+
+**Vấn đề**:
+
+```json
+"DefaultConnection": "...;TrustServerCertificate=true;"
+```
+
+**Mức độ rủi ro**: 🟠 **HIGH**
+
+**Mô tả**:
+
+- Bỏ qua việc xác thực SSL certificate của SQL Server
+- Có thể bị tấn công Man-in-the-Middle
+
+**Khuyến nghị**:
+
+- ✅ Chỉ sử dụng trong development
+- ✅ Trong production, sử dụng certificate hợp lệ
+- ✅ Cấu hình SQL Server với SSL certificate
+
+---
+
+#### 12.3.2. AllowedHosts = "\*"
+
+**Vị trí**: Tất cả file `appsettings.json`
+
+**Vấn đề**:
+
+```json
+"AllowedHosts": "*"
+```
+
+**Mức độ rủi ro**: 🟠 **HIGH**
+
+**Mô tả**:
+
+- Cho phép tất cả host headers
+- Có thể bị tấn công Host Header Injection
+
+**Khuyến nghị**:
+
+- ✅ Chỉ định các host cụ thể:
+  ```json
+  "AllowedHosts": "yourdomain.com;www.yourdomain.com"
+  ```
+
+---
+
+#### 12.3.3. MaxRequestBodySize = long.MaxValue
+
+**Vị trí**:
+
+- `infoportal/Services/LHP.Gateway/LHP.Gateway.Api/Program.cs`
+
+**Vấn đề**:
+
+```csharp
+options.Limits.MaxRequestBodySize = long.MaxValue;
+x.MaxRequestBodySize = long.MaxValue;
+```
+
+**Mức độ rủi ro**: 🟠 **HIGH**
+
+**Mô tả**:
+
+- Không giới hạn kích thước request body
+- Có thể bị tấn công DoS (Denial of Service)
+
+**Khuyến nghị**:
+
+- ✅ Đặt giới hạn hợp lý (ví dụ: 100MB):
+  ```csharp
+  options.Limits.MaxRequestBodySize = 100 * 1024 * 1024; // 100MB
+  ```
+- ✅ Validate file size trước khi upload
+- ✅ Sử dụng rate limiting
+
+---
+
+#### 12.3.4. SQL Injection Risk - String Interpolation
+
+**Vị trí**:
+
+- `infoportal/Services/LHP.Identity/LHP.Identity.Application/Queries/UserQuery/ExecuteUsersQuery.cs`
+
+**Vấn đề**:
+
+```csharp
+query = query.Where(p => !string.IsNullOrEmpty(p.FullName) &&
+    EF.Functions.Like(p.FullName, $"%{request.Keyword}%"));
+```
+
+**Mức độ rủi ro**: 🟠 **HIGH** (nếu không được parameterized đúng cách)
+
+**Mô tả**:
+
+- Sử dụng string interpolation trong EF.Functions.Like
+- Entity Framework thường parameterize tự động, nhưng cần kiểm tra kỹ
+
+**Khuyến nghị**:
+
+- ✅ Kiểm tra SQL được generate có parameterized không
+- ✅ Validate và sanitize input trước khi query
+- ✅ Sử dụng parameterized queries rõ ràng
+
+**Lưu ý**: Entity Framework Core thường tự động parameterize, nhưng cần verify trong production.
+
+---
+
+### 12.4. 🟡 RỦI RO TRUNG BÌNH (MEDIUM)
+
+#### 12.4.1. Sentry DSN Exposed
+
+**Vị trí**:
+
+- `infoportal/Services/LHP.Cms/LHP.Cms.Api/appsettings.json`
+
+**Vấn đề**:
+
+```json
+"SentryConfig": {
+  "Dsn": "https://3c246735e89d4aebfe43ad11ff86ca2e@o4506116054384640.ingest.sentry.io/4506116055302144"
+}
+```
+
+**Mức độ rủi ro**: 🟡 **MEDIUM**
+
+**Mô tả**:
+
+- Sentry DSN có thể bị lộ
+- Kẻ tấn công có thể gửi error logs giả mạo
+
+**Khuyến nghị**:
+
+- ✅ Rotate DSN nếu bị lộ
+- ✅ Sử dụng environment variables
+- ✅ Giới hạn IP có thể gửi logs
+
+---
+
+#### 12.4.2. Swagger Exposed trong Production
+
+**Mức độ rủi ro**: 🟡 **MEDIUM** (nếu cấu hình sai)
+
+**Mô tả**:
+
+- Swagger UI có thể bị expose nếu cấu hình sai
+- Có thể lộ thông tin về API structure
+
+**Khuyến nghị**:
+
+- ✅ Đảm bảo Swagger chỉ enable trong development/staging
+- ✅ Sử dụng authentication cho Swagger trong staging
+- ✅ Disable hoàn toàn trong production
+
+---
+
+#### 12.4.3. Thiếu Input Validation ở một số nơi
+
+**Mô tả**:
+
+- Một số input không được validate đầy đủ
+- Cần kiểm tra kỹ hơn các endpoint nhận input từ user
+
+**Khuyến nghị**:
+
+- ✅ Sử dụng Data Annotations cho validation
+- ✅ Implement custom validators
+- ✅ Validate ở cả client và server side
+- ✅ Sanitize HTML input (đặc biệt cho rich text editor)
+
+---
+
+### 12.5. RỦI RO BẢO MẬT TRONG THƯ VIỆN
+
+#### 12.5.1. Đánh giá Dependencies Frontend (Vue.js)
+
+**File**: `congthongtindientu/package.json`
+
+**✅ Thư viện an toàn**:
+
+- `vue@^3.5.17` - ✅ Phiên bản mới, an toàn
+- `vue-router@^4.5.1` - ✅ Phiên bản mới
+- `axios@^1.10.0` - ✅ Phiên bản mới
+- `bootstrap@^5.3.7` - ✅ Phiên bản mới
+- `vue-i18n@^11.1.7` - ✅ Phiên bản mới
+
+**⚠️ Cần kiểm tra**:
+
+- `file-saver@^2.0.5` - ⚠️ Cần kiểm tra CVE
+- `jszip@^3.10.1` - ⚠️ Cần kiểm tra CVE (đã có một số lỗ hổng trong quá khứ)
+
+**Khuyến nghị**:
+
+- ✅ Chạy `npm audit` để kiểm tra vulnerabilities
+- ✅ Update các package có lỗ hổng
+- ✅ Sử dụng `npm audit fix` để tự động fix
+
+---
+
+#### 12.5.2. Đánh giá Dependencies Frontend (Angular)
+
+**File**: `congthongtindientu-cms/package.json`
+
+**✅ Thư viện an toàn**:
+
+- `@angular/core@^20.0.6` - ✅ Phiên bản mới nhất
+- `ng-zorro-antd@^20.0.0` - ✅ Component library uy tín
+- `angular-auth-oidc-client@^19.0.2` - ✅ OAuth client library
+- `rxjs@~7.8.0` - ✅ Phiên bản mới
+
+**⚠️ Cần kiểm tra**:
+
+- `crypto-es@3.0.2` - ⚠️ Fork của crypto-js, cần verify
+- `ngx-editor@^19.0.0-beta.1` - ⚠️ Beta version, có thể có lỗ hổng
+- `jwt-decode@^4.0.0` - ⚠️ Cần kiểm tra CVE
+
+**Khuyến nghị**:
+
+- ✅ Chạy `npm audit` để kiểm tra vulnerabilities
+- ✅ Cân nhắc sử dụng `crypto-js` chính thức thay vì `crypto-es`
+- ✅ Cập nhật `ngx-editor` lên stable version nếu có
+
+---
+
+#### 12.5.3. Đánh giá Dependencies Backend (.NET)
+
+**File**: `infoportal/Services/LHP.Cms/LHP.Cms.Api/LHP.Cms.Api.csproj`
+
+**✅ Thư viện an toàn**:
+
+- `Microsoft.AspNetCore.OpenApi@7.0.20` - ✅ Phiên bản mới
+- `Swashbuckle.AspNetCore@6.5.0` - ✅ Phiên bản mới
+
+**Khuyến nghị**:
+
+- ✅ Chạy `dotnet list package --vulnerable` để kiểm tra
+- ✅ Update các package có lỗ hổng
+- ✅ Sử dụng `dotnet outdated` để kiểm tra package cũ
+
+---
+
+### 12.6. PHÁT HIỆN BACKDOOR
+
+#### 12.6.1. Kết quả kiểm tra
+
+**✅ KHÔNG PHÁT HIỆN BACKDOOR RÕ RÀNG**
+
+**Các điểm đã kiểm tra**:
+
+- ✅ Không có code đáng ngờ (eval, exec, Function)
+- ✅ Không có kết nối đến server lạ
+- ✅ Không có code obfuscated
+- ✅ Không có hardcoded backdoor credentials
+- ✅ Không có suspicious network calls
+
+---
+
+#### 12.6.2. Các điểm cần lưu ý
+
+**WorkFlowApiUrl trỏ đến domain bên ngoài**
+
+**Vị trí**:
+
+- `infoportal/Services/LHP.Cms/LHP.Cms.Api/appsettings.json`
+
+**Vấn đề**:
+
+```json
+"Services": {
+  "WorkFlowApiUrl": "https://lhp-gateway.fsel.edu.vn/workflow-gateway"
+}
+```
+
+**Đánh giá**:
+
+- ⚠️ Cần verify đây là service hợp lệ
+- ⚠️ Đảm bảo service này được bảo mật
+- ⚠️ Kiểm tra SSL certificate của domain này
+
+**Khuyến nghị**:
+
+- ✅ Verify domain `fsel.edu.vn` là domain chính thức
+- ✅ Sử dụng mTLS nếu có thể
+- ✅ Implement retry và timeout cho external calls
+
+---
+
+### 12.7. ĐÁNH GIÁ THƯ VIỆN ĐÁNG NGỜ
+
+#### 12.7.1. crypto-es
+
+**Vị trí**: `congthongtindientu-cms/package.json`
+
+**Mô tả**:
+
+- Fork của `crypto-js`
+- Không phải là package chính thức
+- Có thể có rủi ro bảo mật
+
+**Đánh giá**: 🟡 **MEDIUM RISK**
+
+**Khuyến nghị**:
+
+- ✅ Cân nhắc sử dụng `crypto-js` chính thức
+- ✅ Nếu phải dùng, verify source code của package
+- ✅ Kiểm tra GitHub repository của package
+
+---
+
+#### 12.7.2. ngx-editor (Beta)
+
+**Vị trí**: `congthongtindientu-cms/package.json`
+
+**Mô tả**:
+
+- Đang ở phiên bản beta
+- Có thể có lỗ hổng chưa được phát hiện
+
+**Đánh giá**: 🟡 **MEDIUM RISK**
+
+**Khuyến nghị**:
+
+- ✅ Cập nhật lên stable version nếu có
+- ✅ Kiểm tra changelog và security advisories
+- ✅ Cân nhắc sử dụng alternative như Quill hoặc TinyMCE
+
+---
+
+#### 12.7.3. Thư viện hợp lệ
+
+Tất cả các thư viện khác đều là:
+
+- ✅ Package chính thức từ npm/nuget
+- ✅ Có nhiều downloads và stars
+- ✅ Được maintain tích cực
+- ✅ Không có dấu hiệu đáng ngờ
+
+---
+
+### 12.8. KHUYẾN NGHỊ KHẮC PHỤC
+
+#### 12.8.1. Ưu tiên cao (CRITICAL)
+
+1. **Di chuyển credentials ra khỏi code**
+
+   - Sử dụng User Secrets cho development
+   - Sử dụng Azure Key Vault cho production
+   - Không commit credentials lên Git
+
+2. **Tạo JWT Secret Key mạnh**
+
+   - Sử dụng ít nhất 256 bits
+   - Generate random key
+   - Rotate định kỳ
+
+3. **Cấu hình CORS đúng cách**
+
+   - Chỉ cho phép các origin cụ thể
+   - Không dùng `AllowAnyOrigin()` trong production
+
+4. **Giới hạn MaxRequestBodySize**
+
+   - Đặt giới hạn hợp lý (100MB)
+   - Validate file size trước khi upload
+
+5. **Sanitize HTML trước khi render**
+   - Sử dụng DOMPurify hoặc tương tự
+   - Validate và sanitize nội dung ở backend
+
+---
+
+#### 12.8.2. Ưu tiên trung bình (HIGH)
+
+1. **Cấu hình AllowedHosts**
+
+   - Chỉ định các host cụ thể
+
+2. **Sử dụng SSL Certificate hợp lệ**
+
+   - Không dùng `TrustServerCertificate=true` trong production
+
+3. **Kiểm tra và update dependencies**
+   - Chạy `npm audit` và `dotnet list package --vulnerable`
+   - Update các package có lỗ hổng
+
+---
+
+#### 12.8.3. Ưu tiên thấp (MEDIUM)
+
+1. **Rotate Sentry DSN nếu cần**
+2. **Đảm bảo Swagger không expose trong production**
+3. **Cải thiện input validation**
+
+---
+
+### 12.9. KẾT LUẬN ĐÁNH GIÁ BẢO MẬT
+
+**Mức độ rủi ro tổng thể**: ⚠️ **TRUNG BÌNH - CAO**
+
+**Các vấn đề chính**:
+
+- 🔴 Hardcoded credentials (CRITICAL)
+- 🔴 CORS configuration quá rộng (CRITICAL)
+- 🔴 JWT Secret Key yếu (CRITICAL)
+- 🔴 XSS Risk - innerHTML (CRITICAL)
+- 🟠 TrustServerCertificate = true (HIGH)
+- 🟠 MaxRequestBodySize không giới hạn (HIGH)
+
+**Backdoor**: ✅ **KHÔNG PHÁT HIỆN**
+
+**Thư viện đáng ngờ**:
+
+- 🟡 `crypto-es` - Cần cân nhắc
+- 🟡 `ngx-editor` (beta) - Cần cập nhật
+
+**Khuyến nghị tổng thể**:
+
+1. **Ngay lập tức**:
+
+   - Di chuyển tất cả credentials ra khỏi code
+   - Tạo JWT Secret Key mạnh
+   - Cấu hình CORS đúng cách
+   - Sanitize HTML trước khi render
+
+2. **Trong tuần này**:
+
+   - Giới hạn MaxRequestBodySize
+   - Cấu hình AllowedHosts
+   - Kiểm tra và update dependencies
+
+3. **Trong tháng này**:
+   - Security audit đầy đủ
+   - Penetration testing
+   - Implement security monitoring
+
+**Lưu ý**: Đây là đánh giá tự động. Cần có security expert review kỹ hơn trước khi deploy production.
+
+---
 
 **Phiên bản**: 1.0
 
